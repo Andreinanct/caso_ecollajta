@@ -7,6 +7,7 @@ interface StaffChartProps {
     totalStaff: number;
     timeline?: {
         production: number; // minutos
+        baking?: number;    // minutos
         totalHours: string;
     };
     efficiency?: {
@@ -100,8 +101,8 @@ export default function StaffChart({ allocation, totalStaff, timeline, efficienc
                         <div
                             key={station}
                             className={`rounded-xl border animate-fade-in ${isCritical
-                                    ? 'bg-amber-500/5 border-amber-500/30'
-                                    : 'bg-[var(--bg-tertiary)] border-[var(--border-light)]'
+                                ? 'bg-amber-500/5 border-amber-500/30'
+                                : 'bg-[var(--bg-tertiary)] border-[var(--border-light)]'
                                 }`}
                             style={{ padding: '1.5rem', animationDelay: `${index * 100}ms` }}
                         >
@@ -155,7 +156,7 @@ export default function StaffChart({ allocation, totalStaff, timeline, efficienc
             </div>
 
             {/* Metodología y Cálculos */}
-            <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: '1.5rem' }}>
+            <div className="grid grid-cols-1 lg:grid-cols-[30%_1fr] items-center" style={{ gap: '1.5rem' }}>
                 <div className="card">
                     <h4 className="font-bold text-lg mb-4 flex items-center gap-2">
                         <span>📚</span>
@@ -209,20 +210,64 @@ export default function StaffChart({ allocation, totalStaff, timeline, efficienc
                                     </div>
                                 ) : (
                                     // Visualización paralela
-                                    <div className="space-y-1">
-                                        <div className="text-xs text-[var(--text-muted)] mb-1">Actividades simultáneas:</div>
-                                        {detailedBreakdown.map((item) => {
-                                            const isBottleneck = item.station === 'moldeado';
-                                            return (
-                                                <div key={item.station} className={`flex justify-between text-xs pl-2 border-l-2 ${isBottleneck ? 'border-red-500 font-bold text-red-400' : 'border-green-500/20 text-[var(--text-muted)]'}`}>
-                                                    <span className="capitalize w-1/3">{item.station}</span>
-                                                    <span className="w-1/3 text-center">{item.staff} pers.</span>
-                                                    <span className="font-mono w-1/3 text-right">~{Math.ceil(item.minutes)} min</span>
-                                                </div>
-                                            );
-                                        })}
-                                        <div className="text-xs text-right pt-1 text-green-500 font-bold border-t border-green-500/20 mt-1">
-                                            Rige el tiempo más alto (Bottleneck) + 10% coord.
+                                    <div className="pt-4 px-1">
+                                        <div className="text-xs text-[var(--text-muted)] mb-4 flex justify-between items-end border-b border-[var(--border-light)] pb-2">
+                                            <span className="font-medium">Flujo de Trabajo Simultáneo</span>
+                                            <span className="text-[10px] opacity-70 italic">Barras relativas al cuello de botella</span>
+                                        </div>
+
+                                        <div className="space-y-5">
+                                            {detailedBreakdown
+                                                .filter(i => i.station !== 'horneado') // Filtramos horneado porque tiene su propia sección abajo
+                                                .map((item, idx, arr) => {
+                                                    // Calcular porcentaje relativo al máximo DE LOS VISIBLES
+                                                    const visibleItems = arr;
+                                                    const maxDuration = Math.max(...visibleItems.map(i => i.minutes));
+                                                    const percentage = (item.minutes / maxDuration) * 100;
+                                                    const isMax = item.minutes === maxDuration;
+
+                                                    // Color basado en si es el bottleneck real
+                                                    const barColor = isMax ? 'bg-gradient-to-r from-red-500 to-red-600' : 'bg-gradient-to-r from-emerald-400 to-emerald-600';
+                                                    const textColor = isMax ? 'text-red-500 font-bold' : 'text-[var(--text-primary)] font-medium';
+
+                                                    return (
+                                                        <div key={item.station} className="relative">
+                                                            {/* Header con linea punteada para conectar visualmente */}
+                                                            <div className="flex justify-between items-end text-xs mb-1.5">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className={`capitalize text-sm ${textColor}`}>{item.station}</span>
+                                                                    <span className="text-[10px] text-[var(--text-muted)] px-2 py-0.5 bg-[var(--bg-tertiary)] border border-[var(--border-light)] rounded-full">
+                                                                        {item.staff} {item.staff === 1 ? 'persona' : 'personas'}
+                                                                    </span>
+                                                                </div>
+                                                                <span className={`font-mono text-sm ${textColor}`}>
+                                                                    {Math.ceil(item.minutes)} min
+                                                                </span>
+                                                            </div>
+
+                                                            {/* Contenedor de Barra */}
+                                                            <div className="h-3 w-full bg-[var(--bg-card)] rounded-full overflow-hidden shadow-inner border border-[var(--border-light)] flex items-center p-[1px]">
+                                                                <div
+                                                                    className={`h-full rounded-full transition-all duration-700 ease-out shadow-sm ${barColor}`}
+                                                                    style={{ width: `${percentage}%` }}
+                                                                />
+                                                            </div>
+
+                                                            {/* Indicador de Holgura */}
+                                                            {!isMax && (
+                                                                <div className="flex justify-end mt-1">
+                                                                    <span className="text-[10px] text-[var(--text-muted)] px-1.5 rounded bg-[var(--bg-tertiary)] opacity-80">
+                                                                        ✨ {Math.ceil(maxDuration - item.minutes)} min de holgura
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                        </div>
+
+                                        <div className="text-xs text-right mt-6 pt-3 text-emerald-600 dark:text-emerald-400 font-bold border-t border-dashed border-emerald-500/30 flex justify-end gap-2 items-center">
+                                            <span>⏱️ Máximo ({Math.ceil(Math.max(...detailedBreakdown.filter(i => i.station !== 'horneado').map(i => i.minutes)))} min) + 10% Coord. = {(timeline.production).toFixed(0)} min Total</span>
                                         </div>
                                     </div>
                                 )}
@@ -231,7 +276,7 @@ export default function StaffChart({ allocation, totalStaff, timeline, efficienc
                             {/* Horneado */}
                             <div className="flex justify-between items-center text-sm p-2 rounded bg-amber-500/10 border-l-4 border-amber-500">
                                 <span>⏲️ Horneado (No depende de staff)</span>
-                                <span className="font-mono font-bold">240 min</span>
+                                <span className="font-mono font-bold">{timeline.baking || 240} min</span>
                             </div>
 
                             <div className="pt-2 mt-2 border-t border-blue-500/20 flex justify-between items-center font-bold">

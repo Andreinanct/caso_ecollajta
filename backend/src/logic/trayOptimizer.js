@@ -19,124 +19,178 @@ function countEdgePositions(rows, cols) {
  * @param {number} potsToPlace - Cantidad de macetas a colocar
  * @param {boolean} maximizeTrays - Si true, usa más bandejas para evitar centros
  * @param {number} traysAvailableInput - Número de bandejas disponibles (default 4)
+ * @param {string} optimizationMode - 'strict' = solo bordes, 'balanced' = permite centros si ahorra ciclos
  * @returns {Object} Distribución de bandejas y recomendaciones
  */
-function optimizeTrayDistribution(potsToPlace, maximizeTrays = false, traysAvailableInput = 4) {
+function optimizeTrayDistribution(potsToPlace, maximizeTrays = false, traysAvailableInput = 4, traySpacing = 2, optimizationMode = 'balanced') {
     const { DEHYDRATOR, CONSTRAINTS } = CONSTANTS;
-    const { CAPACITY_PER_TRAY, GRID_ROWS, GRID_COLS } = DEHYDRATOR;
-    const TRAYS_AVAILABLE = traysAvailableInput || DEHYDRATOR.TRAYS_AVAILABLE;
+    const { CAPACITY_PER_TRAY, GRID_ROWS, GRID_COLS, SPACING_STANDARD, SPACING_COMPACT } = DEHYDRATOR;
 
-    const maxCapacity = TRAYS_AVAILABLE * CAPACITY_PER_TRAY;
-    const edgePositionsPerTray = countEdgePositions(GRID_ROWS, GRID_COLS); // 22 posiciones verdes
+    // Seleccionar configuración según espaciado elegido
+    const spacingConfig = traySpacing === 1 ? SPACING_COMPACT : SPACING_STANDARD;
+    const maxEffective = spacingConfig.maxTrays;
+    const bakingHours = spacingConfig.bakingHours;
+    const slotsUsed = spacingConfig.slots;
 
-    // Validación de capacidad
-    if (potsToPlace > maxCapacity) {
-        return {
-            success: false,
-            error: `Capacidad excedida: máximo ${maxCapacity} macetas (${TRAYS_AVAILABLE} bandejas × ${CAPACITY_PER_TRAY})`,
-            recommendation: `Divida en ${Math.ceil(potsToPlace / maxCapacity)} ciclos de horneado`
-        };
+    // Limitar bandejas a la capacidad efectiva del horno
+    let TRAYS_AVAILABLE = Math.min(traysAvailableInput || DEHYDRATOR.TRAYS_AVAILABLE, maxEffective);
+
+    const alerts = [];
+
+    // Alerta si el usuario pide más bandejas de las que caben físicamente
+    if (traysAvailableInput > maxEffective) {
+        alerts.push({
+            type: 'warning',
+            message: `⚠️ El horno solo permite ${maxEffective} bandejas con espaciado de ${slotsUsed} nivel(es) entre cada una. Se usarán ${maxEffective}.`
+        });
     }
 
-    let traysNeeded;
-    let useOptimizedDistribution = false;
-    let usesCenter = false;
-    let usesIntermediate = false;
+    const maxCapacityPerCycle = maxEffective * CAPACITY_PER_TRAY;
+    const edgePositionsPerTray = countEdgePositions(GRID_ROWS, GRID_COLS); // 22 posiciones verdes
+    const intermediatePositionsPerTray = countIntermediatePositions(GRID_ROWS, GRID_COLS);
+
+    // Calcular cuántas bandejas se necesitan según el modo
+    let traysNeededForAllPots;
 
     if (maximizeTrays) {
-        // Modo maximizar: usar todas las bandejas disponibles para maximizar bordes
-        const maxEdgeCapacity = TRAYS_AVAILABLE * edgePositionsPerTray;
+        // En modo maximizar: primero solo bordes
+        traysNeededForAllPots = Math.ceil(potsToPlace / edgePositionsPerTray);
+    } else {
+        // En modo normal: llenar completamente
+        traysNeededForAllPots = Math.ceil(potsToPlace / CAPACITY_PER_TRAY);
+    }
 
-        // Capacidad borde + intermedio (22 + 14 = 36 por bandeja)
-        const intermediatePositionsPerTray = countIntermediatePositions(GRID_ROWS, GRID_COLS);
-        const maxIntermediateCapacity = TRAYS_AVAILABLE * (edgePositionsPerTray + intermediatePositionsPerTray);
+    // Calcular ciclos de horneado necesarios
+    // ESTRATEGIA HÍBRIDA:
+    // 1. Calculamos ciclos mínimos físicos (usando toda la capacidad si es necesario) para ahorrar tiempo.
+    // 2. Calculamos ciclos ideales (solo bordes).
+    // Si la diferencia es grande, preferimos ahorrar ciclos llenando centros.
 
-        if (potsToPlace <= maxEdgeCapacity) {
-            // Podemos usar SOLO posiciones verdes
-            traysNeeded = Math.min(TRAYS_AVAILABLE, Math.ceil(potsToPlace / edgePositionsPerTray));
-            // Si cabe en menos bandejas pero maximizeTrays está activo, usamos TODAS las disponibles
-            // para esparcir aún más, a menos que sean muy pocas macetas
-            if (potsToPlace > edgePositionsPerTray) {
-                traysNeeded = TRAYS_AVAILABLE;
+    const physicalCapacityPerCycle = maxEffective * CAPACITY_PER_TRAY; // 40 * bandejas
+    const minPhysicalCycles = Math.ceil(potsToPlace / physicalCapacityPerCycle);
+
+    const idealCapacityPerCycle = maxEffective * (maximizeTrays ? edgePositionsPerTray : CAPACITY_PER_TRAY);
+    const idealCycles = Math.ceil(potsToPlace / idealCapacityPerCycle);
+
+    // Si 'Maximizar Bandejas' generaría ciclos extra, forzamos usar la capacidad física (rellenar centros)
+    // para ahorrar 6h de horneado. SOLO SI optimizationMode es 'balanced'.
+    const allowSmartFill = optimizationMode === 'balanced';
+    const useSmartFill = maximizeTrays && allowSmartFill && (minPhysicalCycles < idealCycles);
+
+    const cyclesNeeded = useSmartFill ? minPhysicalCycles : idealCycles;
+    const totalBakingHoursNeeded = cyclesNeeded * bakingHours;
+
+    // Si necesitamos múltiples ciclos, generar distribución por ciclo
+    const cycles = [];
+    let remainingTotal = potsToPlace;
+
+    for (let cycleNum = 1; cycleNum <= cyclesNeeded && remainingTotal > 0; cycleNum++) {
+        const traysThisCycle = [];
+
+        // Cuantas bandejas usar en este ciclo?
+        // Si estamos en SmartFill, intentamos usar todas las disponibles para maximizar bordes
+        const traysInThisCycle = useSmartFill ? maxEffective : Math.min(maxEffective, Math.ceil(remainingTotal / (maximizeTrays ? edgePositionsPerTray : CAPACITY_PER_TRAY)));
+
+        // Calcular cuántas macetas procesar en este ciclo
+        // Si SmartFill está activo, permitimos usar hasta la capacidad TOTAL (40) si es necesario para evitar otro ciclo
+        // Si no, nos limitamos estrictamente a bordes (22)
+        const capacityPerTrayThisMode = (maximizeTrays && !useSmartFill) ? edgePositionsPerTray : CAPACITY_PER_TRAY;
+        const maxPotsThisCycle = traysInThisCycle * capacityPerTrayThisMode;
+
+        // Distribuimos equitativamente las macetas restantes entre los ciclos pendientes para balancear carga
+        const cyclesRemaining = cyclesNeeded - cycleNum + 1;
+        const targetPotsForThisCycle = Math.ceil(remainingTotal / cyclesRemaining);
+
+        let remainingThisCycle = Math.min(targetPotsForThisCycle, maxPotsThisCycle);
+        let potsPlacedThisCycle = 0;
+
+        if (maximizeTrays) {
+            // NUEVA LÓGICA: Llenar bordes de TODAS las bandejas primero
+            // Fase 1: Solo bordes - llenar bandeja por bandeja
+            const edgeAllocation = [];
+            let tempRemaining = remainingThisCycle;
+
+            // Primero asignamos los bordes a cada bandeja (máx 22 por bandeja)
+            for (let i = 0; i < traysInThisCycle && tempRemaining > 0; i++) {
+                const potsForEdge = Math.min(tempRemaining, edgePositionsPerTray);
+                edgeAllocation.push(potsForEdge);
+                tempRemaining -= potsForEdge;
             }
-            useOptimizedDistribution = true;
-            usesCenter = false;
-            usesIntermediate = false;
-        } else if (potsToPlace <= maxIntermediateCapacity) {
-            // Necesitamos zone amarilla
-            traysNeeded = TRAYS_AVAILABLE;
-            useOptimizedDistribution = true;
-            usesIntermediate = true;
-            usesCenter = false;
+
+            // Asegurar que tengamos entradas para todas las bandejas que usaremos
+            while (edgeAllocation.length < traysInThisCycle) {
+                edgeAllocation.push(0);
+            }
+
+            // Fase 2: Si aún quedan, agregar al centro/intermedio empezando por bandeja 1
+            const centerAllocation = new Array(edgeAllocation.length).fill(0);
+            let trayIdx = 0;
+            while (tempRemaining > 0 && trayIdx < edgeAllocation.length) {
+                const currentEdge = edgeAllocation[trayIdx];
+                const spaceLeft = CAPACITY_PER_TRAY - currentEdge - centerAllocation[trayIdx];
+                const toAdd = Math.min(tempRemaining, spaceLeft);
+                centerAllocation[trayIdx] += toAdd;
+                tempRemaining -= toAdd;
+                trayIdx++;
+            }
+
+            // Crear bandejas con la distribución calculada (solo las que tienen macetas)
+            for (let i = 0; i < edgeAllocation.length; i++) {
+                const potsInTray = edgeAllocation[i] + centerAllocation[i];
+                if (potsInTray === 0) continue; // Saltar bandejas vacías
+
+                const grid = generate3ZoneGrid(potsInTray, GRID_ROWS, GRID_COLS);
+
+                const usesIntermediate = potsInTray > edgePositionsPerTray;
+                const usesCenter = potsInTray > (edgePositionsPerTray + intermediatePositionsPerTray);
+
+                traysThisCycle.push({
+                    trayNumber: traysThisCycle.length + 1,
+                    potsCount: potsInTray,
+                    edgePots: Math.min(potsInTray, edgePositionsPerTray),
+                    centerPots: Math.max(0, potsInTray - edgePositionsPerTray),
+                    grid,
+                    fillPercentage: ((potsInTray / CAPACITY_PER_TRAY) * 100).toFixed(0) + '%',
+                    edgeOnly: !usesIntermediate,
+                    usesIntermediate,
+                    usesCenter
+                });
+                potsPlacedThisCycle += potsInTray;
+            }
         } else {
-            // Necesitamos zona roja (centro puro)
-            traysNeeded = TRAYS_AVAILABLE;
-            useOptimizedDistribution = true;
-            usesIntermediate = true;
-            usesCenter = true;
+            // MODO NORMAL: Llenar bandejas completamente una por una
+            for (let i = 0; i < traysInThisCycle && remainingThisCycle > 0; i++) {
+                const potsInTray = Math.min(remainingThisCycle, CAPACITY_PER_TRAY);
+                const grid = generate3ZoneGrid(potsInTray, GRID_ROWS, GRID_COLS);
+
+                traysThisCycle.push({
+                    trayNumber: i + 1,
+                    potsCount: potsInTray,
+                    grid,
+                    fillPercentage: ((potsInTray / CAPACITY_PER_TRAY) * 100).toFixed(0) + '%',
+                    edgeOnly: potsInTray <= edgePositionsPerTray
+                });
+                remainingThisCycle -= potsInTray;
+                potsPlacedThisCycle += potsInTray;
+            }
         }
-    } else {
-        // Modo normal: llenar bandejas completamente, una a la vez
-        traysNeeded = Math.ceil(potsToPlace / CAPACITY_PER_TRAY);
+
+        cycles.push({
+            cycleNumber: cycleNum,
+            trays: traysThisCycle,
+            potsInCycle: potsPlacedThisCycle,
+            traysUsed: traysThisCycle.length,
+            bakingHours: bakingHours
+        });
+
+        remainingTotal -= potsPlacedThisCycle;
     }
 
-    // Generar distribución espacial para cada bandeja
-    const trays = [];
-    let remaining = potsToPlace;
-
-    // Priorizar bandejas centrales para mejor flujo de aire
-    // Generar array de prioridad dinámico según bandejas disponibles
-    const trayPriority = generateTrayPriority(TRAYS_AVAILABLE);
-
-    if (maximizeTrays && useOptimizedDistribution) {
-        // MODO MAXIMIZAR
-        // Distribuir lo más uniformemente posible
-        const basePots = Math.floor(potsToPlace / traysNeeded);
-        let extraPots = potsToPlace % traysNeeded;
-
-        for (let i = 0; i < traysNeeded; i++) {
-            const trayNumber = trayPriority[i];
-            // Algunas bandejas llevan una maceta extra para cuadrar el total
-            const potsInTray = basePots + (extraPots > 0 ? 1 : 0);
-            extraPots--;
-
-            // Generar grid optimizado (Verde -> Amarillo -> Rojo)
-            const grid = generate3ZoneGrid(potsInTray, GRID_ROWS, GRID_COLS);
-
-            // Verificar uso de zonas
-            const trayUsesIntermediate = potsInTray > edgePositionsPerTray;
-            const trayUsesCenter = potsInTray > (edgePositionsPerTray + 14); // 14 es capacidad intermedio aprox
-
-            trays.push({
-                trayNumber,
-                potsCount: potsInTray,
-                grid,
-                fillPercentage: ((potsInTray / CAPACITY_PER_TRAY) * 100).toFixed(0) + '%',
-                edgeOnly: !trayUsesIntermediate,
-                usesIntermediate: trayUsesIntermediate,
-                usesCenter: trayUsesCenter
-            });
-        }
-    } else {
-        // MODO NORMAL: Llenar bandejas una por una
-        for (let i = 0; i < traysNeeded && remaining > 0; i++) {
-            const trayNumber = trayPriority[i];
-            const potsInTray = Math.min(remaining, CAPACITY_PER_TRAY);
-
-            // Generar grid normal (prioriza bordes pero llena completamente)
-            const grid = generate3ZoneGrid(potsInTray, GRID_ROWS, GRID_COLS);
-
-            trays.push({
-                trayNumber,
-                potsCount: potsInTray,
-                grid,
-                fillPercentage: ((potsInTray / CAPACITY_PER_TRAY) * 100).toFixed(0) + '%',
-                edgeOnly: potsInTray <= edgePositionsPerTray
-            });
-
-            remaining -= potsInTray;
-        }
-    }
+    // Para compatibilidad, aplanar todas las bandejas del primer ciclo
+    const trays = cycles[0]?.trays || [];
+    const traysNeeded = trays.length;
+    const usesCenter = trays.some(t => t.usesCenter);
+    const usesIntermediate = trays.some(t => t.usesIntermediate);
 
     // Calcular riesgo de secado desigual
     const densityRisk = calculateDensityRisk(potsToPlace, traysNeeded, maximizeTrays && !usesCenter);
@@ -150,15 +204,25 @@ function optimizeTrayDistribution(potsToPlace, maximizeTrays = false, traysAvail
         summary: {
             totalPots: potsToPlace,
             traysUsed: traysNeeded,
-            averagePerTray: Math.ceil(potsToPlace / traysNeeded),
+            averagePerTray: traysNeeded > 0 ? Math.ceil(potsToPlace / (cyclesNeeded * traysNeeded)) : 0,
             edgeOnlyMode: maximizeTrays && !usesIntermediate && !usesCenter,
             usesIntermediate,
-            usesCenter
+            usesCenter,
+            totalTraysNeeded: traysNeededForAllPots
         },
-        trays,
+        trays, // Primera tanda para compatibilidad
+        cycles, // NUEVO: Distribución por ciclos
         densityAnalysis: densityRisk,
         rotationSchedule,
-        alerts: generateTrayAlerts(potsToPlace, traysNeeded, densityRisk, maximizeTrays, usesIntermediate, usesCenter, TRAYS_AVAILABLE)
+        // Info de horneado
+        bakingInfo: {
+            traySpacing: slotsUsed,
+            maxTraysPerCycle: maxEffective,
+            bakingHoursPerCycle: bakingHours,
+            bakingCycles: cyclesNeeded,
+            totalBakingHours: totalBakingHoursNeeded
+        },
+        alerts: [...alerts, ...generateTrayAlerts(potsToPlace, traysNeeded, densityRisk, maximizeTrays, usesIntermediate, usesCenter, maxEffective)]
     };
 }
 

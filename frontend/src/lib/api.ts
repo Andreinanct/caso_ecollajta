@@ -1,4 +1,4 @@
-import { SimulationParams, FullSimulationResult, DosageResult, StaffResult, TrayResult } from '@/types';
+import { SimulationParams, FullSimulationResult, DosageResult, StaffResult, TrayResult, OptimalResourcesResult } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -29,12 +29,13 @@ export async function getDosage(targetPots: number): Promise<DosageResult> {
 export async function getStaffAllocation(
     targetPots: number,
     hoursAvailable: number,
-    staffCount: number
+    staffCount: number,
+    moldsAvailable: number = 5
 ): Promise<StaffResult> {
     const response = await fetch(`${API_URL}/api/simulate/staff`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetPots, hoursAvailable, staffCount }),
+        body: JSON.stringify({ targetPots, hoursAvailable, staffCount, moldsAvailable }),
     });
 
     return response.json();
@@ -58,4 +59,17 @@ export async function checkHealth(): Promise<boolean> {
     } catch {
         return false;
     }
+}
+
+export async function getOptimization(targetPots: number): Promise<OptimalResourcesResult> {
+    const response = await fetch(`${API_URL}/api/simulate/optimize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetPots }),
+    });
+
+    if (!response.ok) {
+        throw new Error('Error obteniendo optimización');
+    }
+    return response.json();
 }

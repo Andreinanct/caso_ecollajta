@@ -24,11 +24,25 @@ const PRODUCTION_CONSTANTS = {
 
     // Capacidades del deshidratador
     DEHYDRATOR: {
-        TRAYS_AVAILABLE: 4,       // charolas disponibles
-        CAPACITY_PER_TRAY: 40,    // macetas por charola (5x8)
-        GRID_ROWS: 5,             // filas de la cuadrícula
-        GRID_COLS: 8,             // columnas de la cuadrícula
-        TEMPERATURE_CELSIUS: 45   // temperatura de horneado
+        TRAYS_AVAILABLE: 4,           // charolas disponibles (default inicial)
+        CAPACITY_PER_TRAY: 40,        // macetas por charola (5x8)
+        GRID_ROWS: 5,                 // filas de la cuadrícula
+        GRID_COLS: 8,                 // columnas de la cuadrícula
+        TEMPERATURE_CELSIUS: 45,      // temperatura de horneado
+        // Configuración de espacios en el horno
+        TOTAL_SLOTS: 32,              // espacios totales para bandejas vacías
+        // Modo ESTÁNDAR (2 espacios entre bandejas) - mejor circulación de aire
+        SPACING_STANDARD: {
+            slots: 2,                 // espacios vacíos entre cada bandeja
+            maxTrays: 10,             // 32 / (1+2) ≈ 10 bandejas
+            bakingHours: 4            // tiempo de horneado estándar
+        },
+        // Modo COMPACTO (1 espacio entre bandejas) - más capacidad, más tiempo
+        SPACING_COMPACT: {
+            slots: 1,                 // espacios vacíos entre cada bandeja
+            maxTrays: 16,             // 32 / (1+1) = 16 bandejas
+            bakingHours: 6            // +2h (1h extra por fase) por menor circulación de aire
+        }
     },
 
     // Indicadores de rendimiento
@@ -44,6 +58,15 @@ const PRODUCTION_CONSTANTS = {
         MAX_POTS_PER_GROUP: 20,   // máximo antes de penalizar evaporación
         TYPICAL_WASTE_GRAMS: 400, // merma típica (340-447g)
         STAFF_AVAILABLE: 11       // integrantes del grupo
+    },
+
+    // Configuración de MOLDES (nuevo)
+    MOLDS: {
+        DEFAULT_AVAILABLE: 5,     // moldes disponibles por defecto
+        MIN_MOLDS: 1,             // mínimo de moldes
+        MAX_MOLDS: 20,            // máximo de moldes (escalabilidad)
+        OPTIMAL_MOLDS: 3,         // cantidad óptima según pruebas
+        REST_TIME_MIN: 5          // tiempo de reposo en molde (minutos)
     },
 
     // Estaciones de trabajo

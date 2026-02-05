@@ -55,7 +55,13 @@ export default function TrayVisualizer({ trays, showLabels = true }: TrayVisuali
                                     Bandeja {tray.trayNumber}
                                 </h4>
                                 {tray.edgeOnly && (
-                                    <span className="badge badge-success text-xs">Zona Verde (Óptimo)</span>
+                                    <span className="badge badge-success text-xs">Solo Bordes ✓</span>
+                                )}
+                                {tray.usesIntermediate && !tray.usesCenter && (
+                                    <span className="badge bg-amber-500 text-white text-xs">+Intermedio</span>
+                                )}
+                                {tray.usesCenter && (
+                                    <span className="badge bg-red-500 text-white text-xs">+Centro</span>
                                 )}
                             </div>
                             <div className="flex items-center gap-3 text-sm flex-wrap">

@@ -121,6 +121,10 @@ export interface TrayData {
     grid: boolean[][];
     fillPercentage: string;
     edgeOnly?: boolean;
+    usesIntermediate?: boolean;
+    usesCenter?: boolean;
+    edgePots?: number;
+    centerPots?: number;
 }
 
 export interface DensityAnalysis {
@@ -142,6 +146,14 @@ export interface RotationSchedule {
     totalTime: string;
 }
 
+export interface BakingCycle {
+    cycleNumber: number;
+    trays: TrayData[];
+    potsInCycle: number;
+    traysUsed: number;
+    bakingHours: number;
+}
+
 export interface TrayResult {
     success: boolean;
     mode?: string;
@@ -154,10 +166,19 @@ export interface TrayResult {
         edgeOnlyMode?: boolean;
         usesIntermediate?: boolean;
         usesCenter?: boolean;
+        totalTraysNeeded?: number;
     };
     trays?: TrayData[];
+    cycles?: BakingCycle[];
     densityAnalysis?: DensityAnalysis;
     rotationSchedule?: RotationSchedule;
+    bakingInfo?: {
+        traySpacing: number;
+        maxTraysPerCycle: number;
+        bakingHoursPerCycle: number;
+        bakingCycles: number;
+        totalBakingHours: number;
+    };
     alerts?: Alert[];
 }
 
@@ -185,4 +206,37 @@ export interface SimulationParams {
     staffCount: number;
     maximizeTrays: boolean;
     traysAvailable: number;
+    moldsAvailable: number;
+    traySpacing: 1 | 2; // 1 = compacto (16 bandejas, +1h), 2 = estándar (10 bandejas, 4h)
+    optimizationMode?: 'strict' | 'balanced'; // strict = Solo bordes (no centros), balanced = Minimiza ciclos usando centros si es necesario
+}
+
+export interface OptimalResourcesResult {
+    targetPots: number;
+    trays: {
+        optimal: number;
+        minimum: number;
+        reason: string;
+    };
+    staff: {
+        recommendedFor8h: number;
+        explanation: string;
+    };
+    molds: {
+        optimal: number;
+        minimum: number;
+        reason: string;
+    };
+    time: {
+        fastestPossible: string;
+        explanation: string;
+        breakdown?: {
+            production: string;
+            productionMinutes?: number;
+            baking: string;
+            bakingMinutes?: number;
+            setup: string;
+            setupMinutes?: number;
+        };
+    };
 }

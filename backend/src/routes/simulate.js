@@ -8,6 +8,7 @@ const router = express.Router();
 const { calculateDosage, validateMixRatio } = require('../logic/dosageCalculator');
 const { allocateStaff, generateSchedule } = require('../logic/staffAllocator');
 const { optimizeTrayDistribution } = require('../logic/trayOptimizer');
+const { calculateOptimalResources } = require('../logic/resourceOptimizer');
 
 /**
  * POST /api/simulate/dosage
@@ -57,7 +58,7 @@ router.post('/validate-mix', (req, res) => {
  */
 router.post('/staff', (req, res) => {
     try {
-        const { targetPots, hoursAvailable, staffCount } = req.body;
+        const { targetPots, hoursAvailable, staffCount, moldsAvailable } = req.body;
 
         if (!targetPots || !hoursAvailable) {
             return res.status(400).json({
@@ -68,7 +69,8 @@ router.post('/staff', (req, res) => {
         const allocation = allocateStaff(
             parseInt(targetPots),
             parseFloat(hoursAvailable),
-            parseInt(staffCount) || 11
+            parseInt(staffCount) || 11,
+            parseInt(moldsAvailable) || 5
         );
 
         const schedule = generateSchedule(allocation);
@@ -88,7 +90,7 @@ router.post('/staff', (req, res) => {
  */
 router.post('/tray', (req, res) => {
     try {
-        const { potsToPlace, maximizeTrays } = req.body;
+        const { potsToPlace, maximizeTrays, traysAvailable, traySpacing } = req.body;
 
         if (!potsToPlace || potsToPlace < 1) {
             return res.status(400).json({
@@ -96,7 +98,12 @@ router.post('/tray', (req, res) => {
             });
         }
 
-        const result = optimizeTrayDistribution(parseInt(potsToPlace), Boolean(maximizeTrays));
+        const result = optimizeTrayDistribution(
+            parseInt(potsToPlace),
+            Boolean(maximizeTrays),
+            parseInt(traysAvailable) || 4,
+            parseInt(traySpacing) || 2
+        );
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -109,7 +116,7 @@ router.post('/tray', (req, res) => {
  */
 router.post('/full', (req, res) => {
     try {
-        const { targetPots, hoursAvailable, staffCount, maximizeTrays, traysAvailable } = req.body;
+        const { targetPots, hoursAvailable, staffCount, maximizeTrays, traysAvailable, moldsAvailable, traySpacing, optimizationMode } = req.body;
 
         if (!targetPots || !hoursAvailable) {
             return res.status(400).json({
@@ -118,14 +125,28 @@ router.post('/full', (req, res) => {
         }
 
         // Ejecutar todos los cálculos
+        // Ejecutar cálculos en orden: primero Tray para saber tiempos de horno
         const dosage = calculateDosage(parseInt(targetPots));
+
+        const tray = optimizeTrayDistribution(
+            parseInt(targetPots),
+            Boolean(maximizeTrays),
+            parseInt(traysAvailable) || 4,
+            parseInt(traySpacing) || 2,
+            optimizationMode || 'balanced'
+        );
+
+        // Obtener tiempo total de horneado en minutos (del resultado de tray o default 240)
+        const totalBakingMinutes = (tray.bakingInfo?.totalBakingHours || 4) * 60;
+
         const staff = allocateStaff(
             parseInt(targetPots),
             parseFloat(hoursAvailable),
-            parseInt(staffCount) || 11
+            parseInt(staffCount) || 11,
+            parseInt(moldsAvailable) || 5,
+            totalBakingMinutes
         );
         const schedule = generateSchedule(staff);
-        const tray = optimizeTrayDistribution(parseInt(targetPots), Boolean(maximizeTrays), parseInt(traysAvailable) || 4);
 
         // Recopilar TODAS las alertas
         const allAlerts = [
@@ -175,6 +196,23 @@ router.post('/full', (req, res) => {
                 totalAlerts: allAlerts
             }
         });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/simulate/optimize
+ * Sugiere recursos óptimos para una cantidad de macetas
+ */
+router.post('/optimize', (req, res) => {
+    try {
+        const { targetPots } = req.body;
+        if (!targetPots || targetPots < 1) {
+            return res.status(400).json({ error: 'Se requiere una meta de macetas válida' });
+        }
+        const recommendations = calculateOptimalResources(parseInt(targetPots));
+        res.json(recommendations);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
